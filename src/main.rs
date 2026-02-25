@@ -1,99 +1,60 @@
-use std::{clone, collections::HashMap, sync::Arc};
+mod config;
+mod errors;
+mod handlers;
+mod models;
 
-use axum::{Router, routing::get};
-use thiserror::Error;
-use tokio::sync::Mutex;
-use uuid::Uuid;
+use std::net::{Ipv6Addr, SocketAddr};
 
-#[derive(Debug, Error)]
-enum AppError {
-    #[error("Resource not found")]
-    NotFound,
-    #[error("Internal Server Error: {0}")]
-    InternalServerError(String),
-    #[error("Invalid Input, cannot be processed: {field} - {message}")]
-    UnProcessableEntity { field: String, message: String },
-    #[error("Environement Variable is missing: {0}")]
-    MissingEnvironmentVarible(String),
-    #[error("Failed to Parse: {0}")]
-    ParsingError(String),
-}
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
-fn get_env_vars<T>(key: String) -> Result<T, AppError>
-where
-    T: std::str::FromStr,
-    T::Err: std::fmt::Display,
-{
-    let value = std::env::var(&key).map_err(|_| AppError::MissingEnvironmentVarible(key))?;
-    value
-        .parse::<T>()
-        .map_err(|err| AppError::ParsingError(err.to_string()))
-}
+use handlers::{
+    create_student_handler, delete_student_handler, get_all_students_handler, get_student_handler,
+};
 
-#[derive(Clone)]
-enum PaymentStatus {
-    Paid,
-    Pending,
-}
+use models::AppStore;
+use tokio::net::TcpListener;
 
-#[derive(Clone)]
-struct Student {
-    id: Uuid,
-    first_name: String,
-    last_name: String,
-    email: String,
-    status: PaymentStatus,
-    department: String,
-}
-
-struct AppStore {
-    students: Arc<Mutex<HashMap<String, Student>>>,
-}
-
-impl AppStore {
-    fn new() -> Self {
-        Self {
-            students: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    async fn create_student(&self, student: Student) -> Result<(), AppError> {
-        let new_student = Student {
-            id: Uuid::new_v4(),
-            first_name: student.first_name,
-            last_name: student.last_name,
-            email: student.email,
-            department: student.department,
-            status: PaymentStatus::Pending,
-        };
-
-        self.students
-            .lock()
-            .await
-            .insert(new_student.id.to_string(), new_student);
-
-        Ok(())
-    }
-
-    async fn get_all_students(&self) -> Result<Vec<Student>, AppError> {
-        Ok(self.students.lock().await.values().cloned().collect())
-    }
-
-    async fn delete_student(&self, id: Uuid) -> Result<(), AppError> {
-        self.students.lock().await.remove(&id.to_string());
-        Ok(())
-    }
-
-    
-}
+use crate::config::get_env_vars;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/", get(|| async { "Hello from Axum! 🦀" }));
+    dotenvy::dotenv().ok();
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let fallback_port = 8080;
+    let port: u16 = get_env_vars::<u16>("PORT".to_string()).unwrap_or(fallback_port);
+
+    let listening_address: SocketAddr = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+    let store = AppStore::new();
+    let app = Router::new()
+        .route("/", get(|| async { "Hello from Axum! 🦀" }))
+        .route(
+            "/student",
+            post(create_student_handler).get(get_all_students_handler),
+        )
+        .route(
+            "/student/{id}",
+            get(get_student_handler).delete(delete_student_handler),
+        )
+        .with_state(store);
+
+    let binder: TcpListener = TcpListener::bind(listening_address)
         .await
-        .unwrap();
+        .expect("Failed to bind address");
     println!("Listening on http://127.0.0.1:3000");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(binder, app).await.unwrap();
 }
+
+// HTTP VERBS
+
+/****
+ * POST
+ * GET
+ * DELETE
+ * PATCH
+ * PUT
+ *
+ *
+ */
