@@ -41,7 +41,7 @@ pub enum PaymentStatus {
 #[derive(Clone, Serialize)]
 pub struct Student {
     pub id: Uuid,
-    pub school_id: Uuid, // 👈 ties student to a school
+    pub school_id: Uuid, // ties student to a school
     pub school_name: String,
     pub first_name: String,
     pub last_name: String,
@@ -141,7 +141,7 @@ impl AppStore {
         let students = self.students.lock().await;
         Ok(students
             .values()
-            .filter(|s| s.school_id == school_id) // 👈 only this school's students
+            .filter(|s| s.school_id == school_id) // only this school's students
             .cloned()
             .collect())
     }
@@ -150,7 +150,7 @@ impl AppStore {
         let students = self.students.lock().await;
         students
             .values()
-            .find(|s| s.id == id && s.school_id == school_id) // 👈 must belong to this school
+            .find(|s| s.id == id && s.school_id == school_id) // must belong to this school
             .cloned()
             .ok_or(AppError::NotFound)
     }
